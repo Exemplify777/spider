@@ -300,8 +300,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🆘 Support
 
-- **Documentation**: [github.com/Exemplify777/spider/docs](https://github.com/Exemplify777/spider/docs)
-- **Community Forum**: [Exemplify777/spider/discussions](https://Exemplify777/spider/discussions)
+- **Documentation**: [github.com/Exemplify777/spider/docs](https://github.com/Exemplify777/spider/tree/main/docs)
 - **GitHub Issues**: [github.com/Exemplify777/spider/issues](https://github.com/Exemplify777/spider/issues)
 
 ## 🎉 Acknowledgments
