@@ -1,0 +1,419 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  release:
+    types: [ published ]
+
+env:
+  PYTHON_VERSION: "3.9"
+  NODE_VERSION: "18"
+
+jobs:
+  # Code Quality Checks
+  code-quality:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+    
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install -r requirements-dev.txt
+    
+    - name: Run Black (Code Formatting)
+      run: black --check --diff .
+    
+    - name: Run isort (Import Sorting)
+      run: isort --check-only --diff .
+    
+    - name: Run Flake8 (Linting)
+      run: flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+    
+    - name: Run MyPy (Type Checking)
+      run: mypy spider/ --ignore-missing-imports
+    
+    - name: Run Bandit (Security Linting)
+      run: bandit -r spider/ -f json -o bandit-report.json || true
+    
+    - name: Upload Bandit Report
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: bandit-report
+        path: bandit-report.json
+
+  # Unit Tests
+  unit-tests:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+    
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ matrix.python-version }}-${{ hashFiles('**/requirements*.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-${{ matrix.python-version }}-
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install -r requirements-dev.txt
+    
+    - name: Run unit tests
+      run: |
+        pytest tests/ -m "not integration and not e2e and not slow" \
+          --cov=spider \
+          --cov-report=xml \
+          --cov-report=html \
+          --junitxml=junit.xml \
+          --maxfail=5
+    
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        flags: unittests
+        name: codecov-umbrella
+    
+    - name: Upload test results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: test-results-${{ matrix.python-version }}
+        path: |
+          junit.xml
+          htmlcov/
+
+  # Integration Tests
+  integration-tests:
+    runs-on: ubuntu-latest
+    needs: [code-quality, unit-tests]
+    
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
+      
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: spider_test
+        ports:
+          - 5432:5432
+        options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install -r requirements-dev.txt
+    
+    - name: Install Playwright browsers
+      run: playwright install chromium
+    
+    - name: Run integration tests
+      run: |
+        pytest tests/ -m integration \
+          --cov=spider \
+          --cov-report=xml \
+          --cov-report=html \
+          --junitxml=integration-junit.xml
+    
+    - name: Upload integration test results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: integration-test-results
+        path: |
+          integration-junit.xml
+          htmlcov/
+
+  # End-to-End Tests
+  e2e-tests:
+    runs-on: ubuntu-latest
+    needs: [integration-tests]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install -r requirements-dev.txt
+    
+    - name: Install Playwright browsers
+      run: playwright install chromium
+    
+    - name: Run E2E tests
+      run: |
+        pytest tests/ -m e2e \
+          --cov=spider \
+          --cov-report=xml \
+          --junitxml=e2e-junit.xml
+    
+    - name: Upload E2E test results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: e2e-test-results
+        path: |
+          e2e-junit.xml
+
+  # Security Scan
+  security-scan:
+    runs-on: ubuntu-latest
+    needs: [code-quality]
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install safety
+    
+    - name: Run Safety check
+      run: safety check --json --output safety-report.json || true
+    
+    - name: Upload Safety report
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: safety-report
+        path: safety-report.json
+
+  # Docker Build and Test
+  docker-build:
+    runs-on: ubuntu-latest
+    needs: [unit-tests]
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Build Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: false
+        tags: spider:latest
+        target: production
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+    
+    - name: Test Docker image
+      run: |
+        docker run --rm spider:latest python -c "import spider; print('SPIDER imported successfully')"
+    
+    - name: Run container tests
+      run: |
+        docker run --rm -v $(pwd)/tests:/app/tests spider:latest pytest tests/ -m "not integration and not e2e" --maxfail=5
+
+  # Performance Tests
+  performance-tests:
+    runs-on: ubuntu-latest
+    needs: [integration-tests]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install -r requirements-dev.txt
+    
+    - name: Run performance tests
+      run: |
+        pytest tests/ -m slow \
+          --benchmark-only \
+          --benchmark-save=performance \
+          --benchmark-save-data \
+          --junitxml=performance-junit.xml
+    
+    - name: Upload performance results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: performance-results
+        path: |
+          performance-junit.xml
+          .benchmarks/
+
+  # Build and Push Docker Images
+  docker-push:
+    runs-on: ubuntu-latest
+    needs: [docker-build, security-scan]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Login to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+    
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: spider
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          type=raw,value=latest,enable={{is_default_branch}}
+    
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        target: production
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+  # Deploy to AWS Lambda
+  deploy-aws-lambda:
+    runs-on: ubuntu-latest
+    needs: [e2e-tests, docker-push]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-east-1
+    
+    - name: Deploy to AWS Lambda
+      run: |
+        chmod +x scripts/deploy-aws-lambda.sh
+        ./scripts/deploy-aws-lambda.sh --api
+
+  # Deploy to Apify
+  deploy-apify:
+    runs-on: ubuntu-latest
+    needs: [e2e-tests, docker-push]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Deploy to Apify
+      run: |
+        chmod +x scripts/deploy-apify.sh
+        ./scripts/deploy-apify.sh
+
+  # Generate Test Report
+  test-report:
+    runs-on: ubuntu-latest
+    needs: [unit-tests, integration-tests, e2e-tests, performance-tests]
+    if: always()
+    
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v3
+    
+    - name: Generate test report
+      run: |
+        echo "# Test Report" > test-report.md
+        echo "## Unit Tests" >> test-report.md
+        echo "- Status: ${{ needs.unit-tests.result }}" >> test-report.md
+        echo "## Integration Tests" >> test-report.md
+        echo "- Status: ${{ needs.integration-tests.result }}" >> test-report.md
+        echo "## E2E Tests" >> test-report.md
+        echo "- Status: ${{ needs.e2e-tests.result }}" >> test-report.md
+        echo "## Performance Tests" >> test-report.md
+        echo "- Status: ${{ needs.performance-tests.result }}" >> test-report.md
+    
+    - name: Upload test report
+      uses: actions/upload-artifact@v3
+      with:
+        name: test-report
+        path: test-report.md
+
+  # Notify on failure
+  notify-failure:
+    runs-on: ubuntu-latest
+    needs: [code-quality, unit-tests, integration-tests, e2e-tests, docker-build, security-scan]
+    if: failure()
+    
+    steps:
+    - name: Notify on failure
+      run: |
+        echo "One or more CI/CD jobs failed. Please check the logs."
+        # Add notification logic here (Slack, email, etc.)

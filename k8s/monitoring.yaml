@@ -1,0 +1,181 @@
+apiVersion: v1
+kind: ServiceMonitor
+metadata:
+  name: spider-monitor
+  namespace: spider
+  labels:
+    app: spider
+    component: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: spider
+      component: application
+  endpoints:
+  - port: metrics
+    path: /metrics
+    interval: 30s
+    scrapeTimeout: 10s
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: spider
+  labels:
+    app: spider
+    component: monitoring
+spec:
+  selector:
+    app: spider
+    component: prometheus
+  ports:
+  - port: 9090
+    targetPort: 9090
+    protocol: TCP
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: spider
+  labels:
+    app: spider
+    component: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: spider
+      component: prometheus
+  template:
+    metadata:
+      labels:
+        app: spider
+        component: prometheus
+    spec:
+      containers:
+      - name: prometheus
+        image: prom/prometheus:latest
+        ports:
+        - containerPort: 9090
+        args:
+        - --config.file=/etc/prometheus/prometheus.yml
+        - --storage.tsdb.path=/prometheus
+        - --web.console.libraries=/etc/prometheus/console_libraries
+        - --web.console.templates=/etc/prometheus/consoles
+        - --storage.tsdb.retention.time=200h
+        - --web.enable-lifecycle
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "2Gi"
+            cpu: "1"
+        volumeMounts:
+        - name: prometheus-config
+          mountPath: /etc/prometheus
+        - name: prometheus-storage
+          mountPath: /prometheus
+      volumes:
+      - name: prometheus-config
+        configMap:
+          name: prometheus-config
+      - name: prometheus-storage
+        emptyDir: {}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: spider
+  labels:
+    app: spider
+    component: monitoring
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+    
+    rule_files:
+      - "spider_rules.yml"
+    
+    scrape_configs:
+      - job_name: 'spider-app'
+        static_configs:
+          - targets: ['spider-service:9090']
+        scrape_interval: 30s
+        metrics_path: /metrics
+      
+      - job_name: 'postgres'
+        static_configs:
+          - targets: ['postgres-service:5432']
+        scrape_interval: 30s
+      
+      - job_name: 'redis'
+        static_configs:
+          - targets: ['redis-service:6379']
+        scrape_interval: 30s
+      
+      - job_name: 'memcached'
+        static_configs:
+          - targets: ['memcached-service:11211']
+        scrape_interval: 30s
+    
+    alerting:
+      alertmanagers:
+        - static_configs:
+            - targets:
+              - alertmanager:9093
+  
+  spider_rules.yml: |
+    groups:
+    - name: spider.rules
+      rules:
+      - alert: SpiderHighErrorRate
+        expr: rate(spider_http_requests_total{status=~"5.."}[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is {{ $value }} errors per second"
+      
+      - alert: SpiderHighMemoryUsage
+        expr: (spider_memory_usage_bytes / spider_memory_limit_bytes) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage detected"
+          description: "Memory usage is {{ $value }}% of limit"
+      
+      - alert: SpiderHighCPUUsage
+        expr: (spider_cpu_usage_seconds_total / spider_cpu_limit_seconds_total) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage detected"
+          description: "CPU usage is {{ $value }}% of limit"
+      
+      - alert: SpiderDatabaseConnectionFailure
+        expr: spider_database_connections_failed_total > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Database connection failure"
+          description: "Database connection failed {{ $value }} times"
+      
+      - alert: SpiderCacheConnectionFailure
+        expr: spider_cache_connections_failed_total > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Cache connection failure"
+          description: "Cache connection failed {{ $value }} times"

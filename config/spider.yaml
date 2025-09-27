@@ -1,0 +1,283 @@
+# SPIDER Configuration File
+# Enterprise Web Scraping Framework
+
+# Environment settings
+environment: development
+debug: true
+
+# Enterprise features
+enterprise:
+  enabled: true
+  multi_tenant: true
+  compliance_reporting: true
+  user_management: true
+  security:
+    encryption_algorithm: "fernet"
+    hash_algorithm: "sha_256"
+    jwt_expiry_hours: 24
+    password_min_length: 8
+    password_require_special: true
+    password_require_numbers: true
+    password_require_uppercase: true
+    max_login_attempts: 5
+    lockout_duration_minutes: 15
+    session_timeout_minutes: 60
+    enable_2fa: false
+    enable_audit_logging: true
+
+# Database configuration
+database:
+  url: "sqlite:///data/spider.db"
+  pool_size: 10
+  max_overflow: 20
+  echo: false
+
+# Redis configuration
+redis:
+  url: "redis://localhost:6379"
+  db: 0
+  max_connections: 100
+
+# Proxy configuration
+proxy:
+  enabled: true
+  providers:
+    - type: "bright_data"
+      settings:
+        api_key: "${BRIGHT_DATA_API_KEY}"
+        proxies:
+          - host: "proxy.brightdata.com"
+            port: 22225
+            username: "${BRIGHT_DATA_USERNAME}"
+            password: "${BRIGHT_DATA_PASSWORD}"
+            protocol: "http"
+            country: "US"
+    - type: "oxylabs"
+      settings:
+        api_key: "${OXYLABS_API_KEY}"
+        proxies:
+          - host: "pr.oxylabs.io"
+            port: 7777
+            username: "${OXYLABS_USERNAME}"
+            password: "${OXYLABS_PASSWORD}"
+            protocol: "http"
+            country: "US"
+  rotation_interval: 300
+  health_check_interval: 60
+
+# CAPTCHA solving configuration
+captcha:
+  enabled: true
+  providers:
+    - type: "2captcha"
+      settings:
+        api_key: "${2CAPTCHA_API_KEY}"
+        base_url: "http://2captcha.com"
+        timeout: 120
+    - type: "anticaptcha"
+      settings:
+        api_key: "${ANTICAPTCHA_API_KEY}"
+        base_url: "https://api.anti-captcha.com"
+        timeout: 120
+  timeout: 120
+  retry_attempts: 3
+
+# Monitoring configuration
+monitoring:
+  enabled: true
+  prometheus_port: 8000
+  health_check_port: 8001
+  log_level: "INFO"
+
+# Engine configurations
+engines:
+  scrapy:
+    # Scrapy-specific settings
+    USER_AGENT: "SPIDER/1.0 (+https://spider.dev/bot)"
+    ROBOTSTXT_OBEY: true
+    DOWNLOAD_DELAY: 1
+    RANDOMIZE_DOWNLOAD_DELAY: 0.5
+    CONCURRENT_REQUESTS: 16
+    CONCURRENT_REQUESTS_PER_DOMAIN: 8
+    DOWNLOAD_TIMEOUT: 30
+    RETRY_TIMES: 3
+    RETRY_HTTP_CODES: [500, 502, 503, 504, 408, 429]
+    COOKIES_ENABLED: true
+    TELNETCONSOLE_ENABLED: false
+    LOG_LEVEL: "INFO"
+    
+    # Custom settings
+    extractors:
+      html:
+        selectors:
+          title: "title"
+          meta_description: 
+            selector: "meta[name='description']"
+            attribute: "content"
+          links:
+            selector: "a[href]"
+            multiple: true
+          images:
+            selector: "img[src]"
+            multiple: true
+        parser: "html.parser"
+      
+      json:
+        field_mapping:
+          id: "id"
+          name: "name"
+          description: "description"
+        filters:
+          status:
+            include: ["active", "published"]
+  
+  playwright:
+    # Playwright-specific settings
+    headless: true
+    browser_options:
+      args: ["--no-sandbox", "--disable-dev-shm-usage"]
+    timeout: 30000
+    viewport:
+      width: 1920
+      height: 1080
+    user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    
+  httpx:
+    # HTTPX-specific settings
+    timeout: 30.0
+    max_keepalive: 20
+    max_connections: 100
+    follow_redirects: true
+    limits:
+      max_keepalive_connections: 20
+      max_connections: 100
+    headers:
+      User-Agent: "SPIDER/1.0 (+https://spider.dev/bot)"
+      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+      Accept-Language: "en-US,en;q=0.5"
+      Accept-Encoding: "gzip, deflate"
+      Connection: "keep-alive"
+
+# Scraping settings
+max_concurrent_requests: 16
+request_delay: 1.0
+request_timeout: 30
+retry_attempts: 3
+
+# Data storage
+data_dir: "data"
+log_dir: "logs"
+cache_dir: "cache"
+
+# Transformers configuration
+transformers:
+  cleaner:
+    remove_control_chars: true
+    normalize_unicode: true
+    decode_html_entities: true
+  
+  normalizer:
+    lowercase_keys: true
+    normalize_strings: true
+    decimal_places: 2
+
+# Storage configuration
+storage:
+  type: "file"  # file, database, cloud
+  file:
+    data_dir: "data"
+    format: "json"  # json, csv, txt
+    encoding: "utf-8"
+  
+  database:
+    url: "sqlite:///data/spider.db"
+    table_name: "scraping_results"
+  
+  cloud:
+    provider: "s3"  # s3, gcs, azure
+    bucket: "${S3_BUCKET}"
+    region: "us-east-1"
+    access_key: "${AWS_ACCESS_KEY_ID}"
+    secret_key: "${AWS_SECRET_ACCESS_KEY}"
+
+# Rate limiting
+rate_limiting:
+  enabled: true
+  requests_per_minute: 60
+  requests_per_hour: 1000
+  burst_size: 10
+
+# Session management
+session:
+  enabled: true
+  cookie_jar_size: 1000
+  session_timeout: 3600
+  persistent_cookies: true
+
+# Error handling
+error_handling:
+  max_retries: 3
+  retry_delay: 1.0
+  exponential_backoff: true
+  max_retry_delay: 60.0
+  retry_on_status_codes: [500, 502, 503, 504, 408, 429]
+
+# Performance tuning
+performance:
+  connection_pool_size: 100
+  keep_alive_timeout: 30
+  max_redirects: 10
+  enable_compression: true
+  enable_caching: true
+  cache_ttl: 3600
+
+# Security settings
+security:
+  verify_ssl: true
+  ssl_context: "default"
+  tls_version: "TLSv1.2"
+  cipher_suites: ["ECDHE-RSA-AES256-GCM-SHA384", "ECDHE-RSA-AES128-GCM-SHA256"]
+
+# Plugin system configuration
+plugins:
+  enabled: true
+  auto_discovery: true
+  plugin_directories:
+    - "plugins"
+    - "examples/plugins"
+    - "custom_plugins"
+  
+  # Plugin loading settings
+  loading:
+    max_plugins: 100
+    load_timeout: 30
+    dependency_resolution: true
+    auto_load_tags: ["auto_load", "essential"]
+  
+  # Plugin execution settings
+  execution:
+    max_concurrent_plugins: 10
+    execution_timeout: 300
+    retry_attempts: 3
+    error_handling: "continue"  # continue, stop, retry
+  
+  # Plugin monitoring
+  monitoring:
+    track_performance: true
+    track_usage: true
+    performance_threshold: 5.0  # seconds
+    usage_threshold: 1000  # calls per hour
+  
+  # Plugin security
+  security:
+    sandbox_plugins: true
+    restrict_file_access: true
+    allowed_imports: ["spider", "asyncio", "json", "datetime"]
+    blocked_imports: ["os", "subprocess", "sys"]
+  
+  # Plugin registry
+  registry:
+    cache_metadata: true
+    validate_plugins: true
+    check_dependencies: true
+    version_compatibility: true

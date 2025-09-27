@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: memcached
+  namespace: spider
+  labels:
+    app: spider
+    component: cache
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: spider
+      component: memcached
+  template:
+    metadata:
+      labels:
+        app: spider
+        component: memcached
+    spec:
+      containers:
+      - name: memcached
+        image: memcached:1.6-alpine
+        ports:
+        - containerPort: 11211
+        command:
+        - memcached
+        - -m
+        - "512"
+        - -I
+        - "1m"
+        - -c
+        - "1024"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "250m"
+        livenessProbe:
+          exec:
+            command:
+            - memcached-tool
+            - localhost:11211
+            - stats
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+            - memcached-tool
+            - localhost:11211
+            - stats
+          initialDelaySeconds: 5
+          periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: memcached-service
+  namespace: spider
+  labels:
+    app: spider
+    component: cache
+spec:
+  selector:
+    app: spider
+    component: memcached
+  ports:
+  - port: 11211
+    targetPort: 11211
+    protocol: TCP
+  type: ClusterIP

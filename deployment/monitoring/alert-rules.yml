@@ -1,0 +1,250 @@
+# Alert Rules for SPIDER Framework
+groups:
+  - name: spider.rules
+    rules:
+      # High Error Rate Alert
+      - alert: SpiderHighErrorRate
+        expr: rate(spider_http_requests_total{status=~"5.."}[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          service: spider
+          component: api
+        annotations:
+          summary: "High error rate detected in SPIDER API"
+          description: "Error rate is {{ $value }} errors per second for the last 5 minutes"
+          runbook_url: "https://github.com/Exemplify777/spider/docs/runbooks/high-error-rate"
+
+      # High Memory Usage Alert
+      - alert: SpiderHighMemoryUsage
+        expr: (spider_memory_usage_bytes / spider_memory_limit_bytes) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          service: spider
+          component: application
+        annotations:
+          summary: "High memory usage detected in SPIDER application"
+          description: "Memory usage is {{ $value | humanizePercentage }} of limit"
+          runbook_url: "https://github.com/Exemplify777/spider/docs/runbooks/high-memory-usage"
+
+      # High CPU Usage Alert
+      - alert: SpiderHighCPUUsage
+        expr: (spider_cpu_usage_seconds_total / spider_cpu_limit_seconds_total) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          service: spider
+          component: application
+        annotations:
+          summary: "High CPU usage detected in SPIDER application"
+          description: "CPU usage is {{ $value | humanizePercentage }} of limit"
+          runbook_url: "https://github.com/Exemplify777/spider/docs/runbooks/high-cpu-usage"
+
+      # Database Connection Failure Alert
+      - alert: SpiderDatabaseConnectionFailure
+        expr: spider_database_connections_failed_total > 0
+        for: 1m
+        labels:
+          severity: critical
+          service: spider
+          component: database
+        annotations:
+          summary: "Database connection failure detected"
+          description: "Database connection failed {{ $value }} times in the last minute"
+          runbook_url: "https://github.com/Exemplify777/spider/docs/runbooks/database-connection-failure"
+
+      # Cache Connection Failure Alert
+      - alert: SpiderCacheConnectionFailure
+        expr: spider_cache_connections_failed_total > 0
+        for: 1m
+        labels:
+          severity: warning
+          service: spider
+          component: cache
+        annotations:
+          summary: "Cache connection failure detected"
+          description: "Cache connection failed {{ $value }} times in the last minute"
+          runbook_url: "https://github.com/Exemplify777/spider/docs/runbooks/cache-connection-failure"
+
+      # High Response Time Alert
+      - alert: SpiderHighResponseTime
+        expr: histogram_quantile(0.95, rate(spider_http_request_duration_seconds_bucket[5m])) > 2
+        for: 5m
+        labels:
+          severity: warning
+          service: spider
+          component: api
+        annotations:
+          summary: "High response time detected in SPIDER API"
+          description: "95th percentile response time is {{ $value }}s"
+          runbook_url: "https://github.com/Exemplify777/spider/docs/runbooks/high-response-time"
+
+      # Low Success Rate Alert
+      - alert: SpiderLowSuccessRate
+        expr: rate(spider_http_requests_total{status=~"2.."}[5m]) / rate(spider_http_requests_total[5m]) < 0.95
+        for: 5m
+        labels:
+          severity: warning
+          service: spider
+          component: api
+        annotations:
+          summary: "Low success rate detected in SPIDER API"
+          description: "Success rate is {{ $value | humanizePercentage }}"
+          runbook_url: "https://github.com/Exemplify777/spider/docs/runbooks/low-success-rate"
+
+      # High Queue Length Alert
+      - alert: SpiderHighQueueLength
+        expr: spider_task_queue_length > 1000
+        for: 5m
+        labels:
+          severity: warning
+          service: spider
+          component: task-queue
+        annotations:
+          summary: "High task queue length detected"
+          description: "Task queue length is {{ $value }} tasks"
+          runbook_url: "https://github.com/Exemplify777/spider/docs/runbooks/high-queue-length"
+
+      # Model Training Failure Alert
+      - alert: SpiderModelTrainingFailure
+        expr: spider_model_training_failures_total > 0
+        for: 1m
+        labels:
+          severity: warning
+          service: spider
+          component: ai
+        annotations:
+          summary: "Model training failure detected"
+          description: "Model training failed {{ $value }} times in the last minute"
+          runbook_url: "https://github.com/Exemplify777/spider/docs/runbooks/model-training-failure"
+
+      # Edge Node Offline Alert
+      - alert: SpiderEdgeNodeOffline
+        expr: spider_edge_nodes_online == 0
+        for: 5m
+        labels:
+          severity: critical
+          service: spider
+          component: edge
+        annotations:
+          summary: "All edge nodes are offline"
+          description: "No edge nodes are currently online"
+          runbook_url: "https://github.com/Exemplify777/spider/docs/runbooks/edge-nodes-offline"
+
+      # Federated Learning Failure Alert
+      - alert: SpiderFederatedLearningFailure
+        expr: spider_federated_learning_failures_total > 0
+        for: 1m
+        labels:
+          severity: warning
+          service: spider
+          component: federated-learning
+        annotations:
+          summary: "Federated learning failure detected"
+          description: "Federated learning failed {{ $value }} times in the last minute"
+          runbook_url: "https://github.com/Exemplify777/spider/docs/runbooks/federated-learning-failure"
+
+      # AutoML Pipeline Failure Alert
+      - alert: SpiderAutoMLPipelineFailure
+        expr: spider_automl_pipeline_failures_total > 0
+        for: 1m
+        labels:
+          severity: warning
+          service: spider
+          component: automl
+        annotations:
+          summary: "AutoML pipeline failure detected"
+          description: "AutoML pipeline failed {{ $value }} times in the last minute"
+          runbook_url: "https://github.com/Exemplify777/spider/docs/runbooks/automl-pipeline-failure"
+
+      # Model Explainability Failure Alert
+      - alert: SpiderModelExplainabilityFailure
+        expr: spider_model_explainability_failures_total > 0
+        for: 1m
+        labels:
+          severity: warning
+          service: spider
+          component: explainability
+        annotations:
+          summary: "Model explainability failure detected"
+          description: "Model explainability failed {{ $value }} times in the last minute"
+          runbook_url: "https://github.com/Exemplify777/spider/docs/runbooks/model-explainability-failure"
+
+      # Performance Optimization Failure Alert
+      - alert: SpiderPerformanceOptimizationFailure
+        expr: spider_performance_optimization_failures_total > 0
+        for: 1m
+        labels:
+          severity: warning
+          service: spider
+          component: optimization
+        annotations:
+          summary: "Performance optimization failure detected"
+          description: "Performance optimization failed {{ $value }} times in the last minute"
+          runbook_url: "https://github.com/Exemplify777/spider/docs/runbooks/performance-optimization-failure"
+
+      # Disk Space Low Alert
+      - alert: SpiderDiskSpaceLow
+        expr: (spider_disk_usage_bytes / spider_disk_total_bytes) > 0.85
+        for: 5m
+        labels:
+          severity: warning
+          service: spider
+          component: storage
+        annotations:
+          summary: "Low disk space detected"
+          description: "Disk usage is {{ $value | humanizePercentage }} of total capacity"
+          runbook_url: "https://github.com/Exemplify777/spider/docs/runbooks/low-disk-space"
+
+      # Network Latency High Alert
+      - alert: SpiderNetworkLatencyHigh
+        expr: histogram_quantile(0.95, rate(spider_network_latency_seconds_bucket[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+          service: spider
+          component: network
+        annotations:
+          summary: "High network latency detected"
+          description: "95th percentile network latency is {{ $value }}s"
+          runbook_url: "https://github.com/Exemplify777/spider/docs/runbooks/high-network-latency"
+
+      # Service Down Alert
+      - alert: SpiderServiceDown
+        expr: up{job="spider-app"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: spider
+          component: application
+        annotations:
+          summary: "SPIDER service is down"
+          description: "SPIDER service has been down for more than 1 minute"
+          runbook_url: "https://github.com/Exemplify777/spider/docs/runbooks/service-down"
+
+      # Database Down Alert
+      - alert: SpiderDatabaseDown
+        expr: up{job="postgres"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: spider
+          component: database
+        annotations:
+          summary: "Database is down"
+          description: "PostgreSQL database has been down for more than 1 minute"
+          runbook_url: "https://github.com/Exemplify777/spider/docs/runbooks/database-down"
+
+      # Cache Down Alert
+      - alert: SpiderCacheDown
+        expr: up{job="redis"} == 0
+        for: 1m
+        labels:
+          severity: warning
+          service: spider
+          component: cache
+        annotations:
+          summary: "Cache is down"
+          description: "Redis cache has been down for more than 1 minute"
+          runbook_url: "https://github.com/Exemplify777/spider/docs/runbooks/cache-down"

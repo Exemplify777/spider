@@ -1,0 +1,259 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: spider-database-backup
+  namespace: spider
+  labels:
+    app: spider
+    component: backup
+spec:
+  schedule: "0 2 * * *"  # Daily at 2 AM
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: postgres-backup
+            image: postgres:15-alpine
+            env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: spider-secrets
+                  key: database-password
+            - name: POSTGRES_DB
+              value: spider_db
+            - name: POSTGRES_USER
+              value: spider
+            - name: POSTGRES_HOST
+              value: postgres-service
+            command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              BACKUP_FILE="/backup/spider_db_$(date +%Y%m%d_%H%M%S).sql"
+              pg_dump -h $POSTGRES_HOST -U $POSTGRES_USER -d $POSTGRES_DB > $BACKUP_FILE
+              gzip $BACKUP_FILE
+              echo "Backup completed: ${BACKUP_FILE}.gz"
+            volumeMounts:
+            - name: backup-storage
+              mountPath: /backup
+          volumes:
+          - name: backup-storage
+            persistentVolumeClaim:
+              claimName: backup-pvc
+          restartPolicy: OnFailure
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: backup-pvc
+  namespace: spider
+  labels:
+    app: spider
+    component: backup
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Gi
+  storageClassName: gp2
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: spider-config-backup
+  namespace: spider
+  labels:
+    app: spider
+    component: backup
+spec:
+  schedule: "0 3 * * *"  # Daily at 3 AM
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: config-backup
+            image: bitnami/kubectl:latest
+            command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              BACKUP_DIR="/backup/config_$(date +%Y%m%d_%H%M%S)"
+              mkdir -p $BACKUP_DIR
+              
+              # Backup ConfigMaps
+              kubectl get configmaps -n spider -o yaml > $BACKUP_DIR/configmaps.yaml
+              
+              # Backup Secrets (without sensitive data)
+              kubectl get secrets -n spider -o yaml > $BACKUP_DIR/secrets.yaml
+              
+              # Backup Deployments
+              kubectl get deployments -n spider -o yaml > $BACKUP_DIR/deployments.yaml
+              
+              # Backup Services
+              kubectl get services -n spider -o yaml > $BACKUP_DIR/services.yaml
+              
+              # Backup Ingress
+              kubectl get ingress -n spider -o yaml > $BACKUP_DIR/ingress.yaml
+              
+              # Create archive
+              cd /backup
+              tar -czf "config_backup_$(date +%Y%m%d_%H%M%S).tar.gz" config_*
+              rm -rf config_*
+              
+              echo "Config backup completed"
+            volumeMounts:
+            - name: backup-storage
+              mountPath: /backup
+            - name: kubeconfig
+              mountPath: /root/.kube
+          volumes:
+          - name: backup-storage
+            persistentVolumeClaim:
+              claimName: backup-pvc
+          - name: kubeconfig
+            configMap:
+              name: kubeconfig
+          restartPolicy: OnFailure
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kubeconfig
+  namespace: spider
+  labels:
+    app: spider
+    component: backup
+data:
+  config: |
+    apiVersion: v1
+    kind: Config
+    clusters:
+    - cluster:
+        server: https://kubernetes.default.svc
+      name: default
+    contexts:
+    - context:
+        cluster: default
+        user: default
+      name: default
+    current-context: default
+    users:
+    - name: default
+      user:
+        serviceAccount: spider-service-account
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: spider-cleanup-old-backups
+  namespace: spider
+  labels:
+    app: spider
+    component: backup
+spec:
+  schedule: "0 4 * * 0"  # Weekly on Sunday at 4 AM
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: cleanup-backups
+            image: alpine:latest
+            command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              echo "Cleaning up old backups (keeping last 30 days)..."
+              find /backup -name "*.sql.gz" -mtime +30 -delete
+              find /backup -name "*.tar.gz" -mtime +30 -delete
+              echo "Cleanup completed"
+            volumeMounts:
+            - name: backup-storage
+              mountPath: /backup
+          volumes:
+          - name: backup-storage
+            persistentVolumeClaim:
+              claimName: backup-pvc
+          restartPolicy: OnFailure
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spider-disaster-recovery-config
+  namespace: spider
+  labels:
+    app: spider
+    component: backup
+data:
+  disaster-recovery.yaml: |
+    # Disaster Recovery Configuration
+    disaster_recovery:
+      # Backup Strategy
+      backup:
+        database:
+          enabled: true
+          schedule: "0 2 * * *"  # Daily at 2 AM
+          retention_days: 30
+          compression: true
+          encryption: true
+        
+        configuration:
+          enabled: true
+          schedule: "0 3 * * *"  # Daily at 3 AM
+          retention_days: 30
+          include_secrets: false
+        
+        application_data:
+          enabled: true
+          schedule: "0 4 * * *"  # Daily at 4 AM
+          retention_days: 7
+          include_logs: true
+          include_models: true
+      
+      # Recovery Procedures
+      recovery:
+        database:
+          rto: "1h"  # Recovery Time Objective
+          rpo: "24h"  # Recovery Point Objective
+          procedure: "restore_from_backup"
+        
+        application:
+          rto: "30m"
+          rpo: "1h"
+          procedure: "redeploy_from_backup"
+        
+        configuration:
+          rto: "15m"
+          rpo: "1h"
+          procedure: "restore_config_from_backup"
+      
+      # Monitoring
+      monitoring:
+        backup_success_rate: 99.9
+        recovery_test_frequency: "monthly"
+        alert_on_backup_failure: true
+        alert_on_recovery_failure: true
+      
+      # Testing
+      testing:
+        enabled: true
+        schedule: "0 5 * * 0"  # Weekly on Sunday at 5 AM
+        test_database_restore: true
+        test_configuration_restore: true
+        test_application_restore: true

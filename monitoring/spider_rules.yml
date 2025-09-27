@@ -1,0 +1,114 @@
+# Prometheus alerting rules for SPIDER
+
+groups:
+  - name: spider.rules
+    rules:
+      # High error rate
+      - alert: SpiderHighErrorRate
+        expr: rate(spider_errors_total[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "SPIDER high error rate detected"
+          description: "SPIDER error rate is {{ $value }} errors per second"
+
+      # High response time
+      - alert: SpiderHighResponseTime
+        expr: histogram_quantile(0.95, rate(spider_scraping_request_duration_seconds_bucket[5m])) > 30
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "SPIDER high response time detected"
+          description: "95th percentile response time is {{ $value }} seconds"
+
+      # Low success rate
+      - alert: SpiderLowSuccessRate
+        expr: rate(spider_scraping_requests_total{status="success"}[5m]) / rate(spider_scraping_requests_total[5m]) < 0.8
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "SPIDER low success rate detected"
+          description: "Success rate is {{ $value | humanizePercentage }}"
+
+      # Proxy health issues
+      - alert: SpiderProxyHealthIssues
+        expr: spider_proxy_health_score < 0.5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "SPIDER proxy health issues detected"
+          description: "Proxy {{ $labels.proxy_host }} health score is {{ $value }}"
+
+      # CAPTCHA solving failures
+      - alert: SpiderCaptchaFailures
+        expr: rate(spider_captcha_attempts_total{status="failed"}[5m]) > 0.05
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "SPIDER CAPTCHA solving failures detected"
+          description: "CAPTCHA failure rate is {{ $value }} per second"
+
+      # High memory usage
+      - alert: SpiderHighMemoryUsage
+        expr: spider_memory_usage_bytes > 1000000000  # 1GB
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "SPIDER high memory usage detected"
+          description: "Memory usage is {{ $value | humanizeBytes }}"
+
+      # High CPU usage
+      - alert: SpiderHighCpuUsage
+        expr: spider_cpu_usage_percent > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "SPIDER high CPU usage detected"
+          description: "CPU usage is {{ $value }}%"
+
+      # Storage operation failures
+      - alert: SpiderStorageFailures
+        expr: rate(spider_storage_operations_total{status="failed"}[5m]) > 0.01
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "SPIDER storage operation failures detected"
+          description: "Storage failure rate is {{ $value }} per second"
+
+      # Data extraction failures
+      - alert: SpiderExtractionFailures
+        expr: rate(spider_data_extraction_operations_total{status="failed"}[5m]) > 0.05
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "SPIDER data extraction failures detected"
+          description: "Extraction failure rate is {{ $value }} per second"
+
+      # No scraping activity
+      - alert: SpiderNoActivity
+        expr: rate(spider_scraping_requests_total[10m]) == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "SPIDER no scraping activity detected"
+          description: "No scraping requests in the last 10 minutes"
+
+      # Service down
+      - alert: SpiderServiceDown
+        expr: up{job="spider"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "SPIDER service is down"
+          description: "SPIDER service has been down for more than 1 minute"

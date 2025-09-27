@@ -1,0 +1,303 @@
+apiVersion: v1
+kind: NetworkPolicy
+metadata:
+  name: spider-network-policy
+  namespace: spider
+  labels:
+    app: spider
+    component: security
+spec:
+  podSelector:
+    matchLabels:
+      app: spider
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: spider
+    - podSelector:
+        matchLabels:
+          app: spider
+    ports:
+    - protocol: TCP
+      port: 8000
+    - protocol: TCP
+      port: 9090
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx
+    ports:
+    - protocol: TCP
+      port: 8000
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: spider
+          component: database
+    ports:
+    - protocol: TCP
+      port: 5432
+  - to:
+    - podSelector:
+        matchLabels:
+          app: spider
+          component: cache
+    ports:
+    - protocol: TCP
+      port: 6379
+  - to:
+    - podSelector:
+        matchLabels:
+          app: spider
+          component: memcached
+    ports:
+    - protocol: TCP
+      port: 11211
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+    - protocol: TCP
+      port: 80
+    - protocol: UDP
+      port: 53
+---
+apiVersion: v1
+kind: NetworkPolicy
+metadata:
+  name: spider-database-network-policy
+  namespace: spider
+  labels:
+    app: spider
+    component: security
+spec:
+  podSelector:
+    matchLabels:
+      app: spider
+      component: database
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: spider
+          component: application
+    ports:
+    - protocol: TCP
+      port: 5432
+  egress:
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+    - protocol: UDP
+      port: 53
+---
+apiVersion: v1
+kind: NetworkPolicy
+metadata:
+  name: spider-cache-network-policy
+  namespace: spider
+  labels:
+    app: spider
+    component: security
+spec:
+  podSelector:
+    matchLabels:
+      app: spider
+      component: cache
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: spider
+          component: application
+    ports:
+    - protocol: TCP
+      port: 6379
+  egress:
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+    - protocol: UDP
+      port: 53
+---
+apiVersion: v1
+kind: PodSecurityPolicy
+metadata:
+  name: spider-psp
+  namespace: spider
+  labels:
+    app: spider
+    component: security
+spec:
+  privileged: false
+  allowPrivilegeEscalation: false
+  requiredDropCapabilities:
+  - ALL
+  volumes:
+  - 'configMap'
+  - 'emptyDir'
+  - 'projected'
+  - 'secret'
+  - 'downwardAPI'
+  - 'persistentVolumeClaim'
+  runAsUser:
+    rule: 'MustRunAsNonRoot'
+  seLinux:
+    rule: 'RunAsAny'
+  fsGroup:
+    rule: 'RunAsAny'
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: spider-service-account
+  namespace: spider
+  labels:
+    app: spider
+    component: security
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: spider
+  name: spider-role
+  labels:
+    app: spider
+    component: security
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services", "endpoints", "persistentvolumeclaims", "events", "configmaps", "secrets"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "daemonsets", "replicasets", "statefulsets"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: ["autoscaling"]
+  resources: ["horizontalpodautoscalers"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: ["networking.k8s.io"]
+  resources: ["ingresses", "networkpolicies"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: spider-role-binding
+  namespace: spider
+  labels:
+    app: spider
+    component: security
+subjects:
+- kind: ServiceAccount
+  name: spider-service-account
+  namespace: spider
+roleRef:
+  kind: Role
+  name: spider-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: spider-tls-secret
+  namespace: spider
+  labels:
+    app: spider
+    component: security
+type: kubernetes.io/tls
+data:
+  tls.crt: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCi0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0K
+  tls.key: LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCi0tLS0tRU5EIFBSSVZBVEUgS0VZLS0tLS0K
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spider-security-config
+  namespace: spider
+  labels:
+    app: spider
+    component: security
+data:
+  security.yaml: |
+    # Security Configuration
+    security:
+      # Authentication
+      authentication:
+        enabled: true
+        jwt_secret: "production-jwt-secret"
+        jwt_algorithm: "HS256"
+        access_token_expire_minutes: 30
+        refresh_token_expire_days: 7
+      
+      # Authorization
+      authorization:
+        enabled: true
+        rbac_enabled: true
+        default_role: "user"
+      
+      # Encryption
+      encryption:
+        enabled: true
+        algorithm: "AES-256-GCM"
+        key_rotation_days: 90
+      
+      # Rate Limiting
+      rate_limiting:
+        enabled: true
+        requests_per_minute: 1000
+        burst_size: 2000
+        window_size_minutes: 1
+      
+      # CORS
+      cors:
+        enabled: true
+        allowed_origins: ["https://example.com", "https://dashboard.example.com"]
+        allowed_methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+        allowed_headers: ["Content-Type", "Authorization", "X-Requested-With"]
+        allow_credentials: true
+      
+      # Security Headers
+      security_headers:
+        enabled: true
+        strict_transport_security: true
+        content_security_policy: "default-src 'self'"
+        x_frame_options: "DENY"
+        x_content_type_options: "nosniff"
+        referrer_policy: "strict-origin-when-cross-origin"
+      
+      # Input Validation
+      input_validation:
+        enabled: true
+        max_request_size: "50MB"
+        max_file_size: "10MB"
+        allowed_file_types: ["image/jpeg", "image/png", "application/pdf", "text/csv"]
+      
+      # Audit Logging
+      audit_logging:
+        enabled: true
+        log_level: "INFO"
+        log_requests: true
+        log_responses: true
+        log_errors: true
+        retention_days: 90
+      
+      # Session Management
+      session_management:
+        enabled: true
+        session_timeout_minutes: 30
+        max_concurrent_sessions: 5
+        secure_cookies: true
+        http_only_cookies: true
+        same_site: "Strict"
